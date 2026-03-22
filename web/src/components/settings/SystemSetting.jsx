@@ -31,6 +31,7 @@ import {
   Card,
   Radio,
   Select,
+  Input,
 } from '@douyinfe/semi-ui';
 const { Text } = Typography;
 import {
@@ -43,6 +44,7 @@ import {
 import axios from 'axios';
 import { useTranslation } from 'react-i18next';
 import CustomOAuthSetting from './CustomOAuthSetting';
+import { CHANNEL_OPTIONS } from '../../constants';
 
 const SystemSetting = () => {
   const { t } = useTranslation();
@@ -100,6 +102,7 @@ const SystemSetting = () => {
     LinuxDOClientSecret: '',
     LinuxDOMinimumTrustLevel: '',
     ServerAddress: '',
+    'channel_proxy_setting.type_proxies': {},
     // SSRF防护配置
     'fetch_setting.enable_ssrf_protection': true,
     'fetch_setting.allow_private_ip': '',
@@ -169,6 +172,13 @@ const SystemSetting = () => {
               setAllowedPorts(Array.isArray(ports) ? ports : []);
             } catch (e) {
               setAllowedPorts(['80', '443', '8080', '8443']);
+            }
+            break;
+          case 'channel_proxy_setting.type_proxies':
+            try {
+              item.value = item.value ? JSON.parse(item.value) : {};
+            } catch (e) {
+              item.value = {};
             }
             break;
           case 'PasswordLoginEnabled':
@@ -310,6 +320,55 @@ const SystemSetting = () => {
       options.push({ key: 'WorkerValidKey', value: inputs.WorkerValidKey });
     }
     await updateOptions(options);
+  };
+
+  const handleChannelTypeProxyChange = (channelType, value) => {
+    setInputs((prev) => ({
+      ...prev,
+      'channel_proxy_setting.type_proxies': {
+        ...(prev['channel_proxy_setting.type_proxies'] || {}),
+        [String(channelType)]: value,
+      },
+    }));
+  };
+
+  const submitChannelTypeProxySettings = async () => {
+    const rawMap = inputs['channel_proxy_setting.type_proxies'] || {};
+    const normalizedMap = {};
+    Object.entries(rawMap).forEach(([channelType, proxy]) => {
+      if (typeof proxy !== 'string') {
+        return;
+      }
+      const trimmed = proxy.trim();
+      if (trimmed !== '') {
+        normalizedMap[channelType] = trimmed;
+      }
+    });
+
+    setLoading(true);
+    try {
+      const res = await API.put('/api/option/', {
+        key: 'channel_proxy_setting.type_proxies',
+        value: JSON.stringify(normalizedMap),
+      });
+      if (!res.data.success) {
+        showError(res.data.message);
+        return;
+      }
+      showSuccess(t('更新成功'));
+      setInputs((prev) => ({
+        ...prev,
+        'channel_proxy_setting.type_proxies': normalizedMap,
+      }));
+      setOriginInputs((prev) => ({
+        ...prev,
+        'channel_proxy_setting.type_proxies': normalizedMap,
+      }));
+    } catch (error) {
+      showError(t('更新失败'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const submitServerAddress = async () => {
@@ -734,7 +793,55 @@ const SystemSetting = () => {
               </Card>
 
               <Card>
-                <Form.Section text={t('代理设置')}>
+                <Form.Section text={t('代理配置')}>
+                  <Banner
+                    type='info'
+                    description={t(
+                      '这里用于按渠道类型配置出站代理。优先级为：具体渠道代理 > 渠道类型代理 > 服务进程环境代理（HTTP_PROXY/HTTPS_PROXY）',
+                    )}
+                    style={{ marginBottom: 20, marginTop: 16 }}
+                  />
+                  <Row
+                    gutter={{ xs: 8, sm: 16, md: 24, lg: 24, xl: 24, xxl: 24 }}
+                  >
+                    {CHANNEL_OPTIONS.map((option) => (
+                      <Col
+                        key={`channel-proxy-${option.value}`}
+                        xs={24}
+                        sm={24}
+                        md={12}
+                        lg={12}
+                        xl={8}
+                      >
+                        <div style={{ marginBottom: 16 }}>
+                          <Text strong>{option.label}</Text>
+                          <Input
+                            style={{ marginTop: 8 }}
+                            value={
+                              inputs['channel_proxy_setting.type_proxies']?.[
+                                String(option.value)
+                              ] || ''
+                            }
+                            placeholder={t(
+                              '留空则回退到系统环境代理，例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:7890',
+                            )}
+                            onChange={(value) =>
+                              handleChannelTypeProxyChange(option.value, value)
+                            }
+                            showClear
+                          />
+                        </div>
+                      </Col>
+                    ))}
+                  </Row>
+                  <Button onClick={submitChannelTypeProxySettings}>
+                    {t('更新代理配置')}
+                  </Button>
+                </Form.Section>
+              </Card>
+
+              <Card>
+                <Form.Section text={t('Worker代理设置')}>
                   <Banner
                     type='info'
                     description={t(

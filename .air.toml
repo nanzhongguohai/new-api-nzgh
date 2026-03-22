@@ -1,0 +1,50 @@
+root = "."
+tmp_dir = "tmp/air"
+
+[build]
+cmd = "bash ./scripts/dev-rebuild.sh"
+entrypoint = ["bash", "./scripts/dev-run.sh"]
+full_bin = "bash ./scripts/dev-run.sh"
+delay = 1000
+exclude_dir = ["bin", "logs", "node_modules", "tmp", "data", ".git", "web/dist"]
+exclude_regex = ["_test\\.go"]
+include_dir = [
+  "common",
+  "constant",
+  "controller",
+  "dto",
+  "i18n",
+  "middleware",
+  "model",
+  "oauth",
+  "pkg",
+  "relay",
+  "router",
+  "scripts",
+  "service",
+  "setting",
+  "types",
+  "web/src",
+  "web/public"
+]
+include_ext = ["go", "json", "yaml", "yml", "toml", "env", "html", "css", "js", "jsx", "ts", "tsx"]
+include_file = [".air.toml", ".env", "go.mod", "go.sum", "web/index.html", "web/package.json", "web/bun.lock", "web/bun.lockb"]
+kill_delay = "2s"
+log = "tmp/air/build-errors.log"
+poll = false
+rerun = false
+send_interrupt = true
+stop_on_error = true
+
+[color]
+app = "green"
+build = "yellow"
+main = "magenta"
+runner = "cyan"
+watcher = "blue"
+
+[log]
+time = true
+
+[misc]
+clean_on_exit = true

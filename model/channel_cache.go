@@ -94,9 +94,13 @@ func SyncChannelCache(frequency int) {
 }
 
 func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel, error) {
+	return GetRandomSatisfiedChannelWithExclude(group, model, retry, nil)
+}
+
+func GetRandomSatisfiedChannelWithExclude(group string, model string, retry int, excludedIDs []int) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry)
+		return GetChannelWithExclude(group, model, retry, excludedIDs)
 	}
 
 	channelSyncLock.RLock()
@@ -115,15 +119,32 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 		return nil, nil
 	}
 
-	if len(channels) == 1 {
-		if channel, ok := channelsIDM[channels[0]]; ok {
+	excludedSet := make(map[int]struct{}, len(excludedIDs))
+	for _, channelID := range excludedIDs {
+		excludedSet[channelID] = struct{}{}
+	}
+
+	filteredChannels := make([]int, 0, len(channels))
+	for _, channelID := range channels {
+		if _, excluded := excludedSet[channelID]; excluded {
+			continue
+		}
+		filteredChannels = append(filteredChannels, channelID)
+	}
+
+	if len(filteredChannels) == 0 {
+		return nil, nil
+	}
+
+	if len(filteredChannels) == 1 {
+		if channel, ok := channelsIDM[filteredChannels[0]]; ok {
 			return channel, nil
 		}
-		return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channels[0])
+		return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", filteredChannels[0])
 	}
 
 	uniquePriorities := make(map[int]bool)
-	for _, channelId := range channels {
+	for _, channelId := range filteredChannels {
 		if channel, ok := channelsIDM[channelId]; ok {
 			uniquePriorities[int(channel.GetPriority())] = true
 		} else {
@@ -144,7 +165,7 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 	// get the priority for the given retry number
 	var sumWeight = 0
 	var targetChannels []*Channel
-	for _, channelId := range channels {
+	for _, channelId := range filteredChannels {
 		if channel, ok := channelsIDM[channelId]; ok {
 			if channel.GetPriority() == targetPriority {
 				sumWeight += channel.GetWeight()

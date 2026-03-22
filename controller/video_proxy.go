@@ -65,7 +65,7 @@ func VideoProxy(c *gin.Context) {
 	}
 
 	var videoURL string
-	proxy := channel.GetSetting().Proxy
+	proxy := service.ResolveChannelProxy(channel)
 	client, err := service.GetHttpClientWithProxy(proxy)
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to create proxy client for task %s: %s", taskID, err.Error()))

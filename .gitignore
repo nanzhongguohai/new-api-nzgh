@@ -22,6 +22,10 @@ tiktoken_cache
 web/bun.lock
 plans
 .claude
+bin/new-api-deploy
+bin/new-api-local
+bin/new-api-hot
+docker-compose.local.yml
 
 electron/node_modules
 electron/dist

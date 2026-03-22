@@ -25,6 +25,10 @@ tiktoken_cache
 plans
 .claude
 .cursor
+bin/new-api-deploy
+bin/new-api-local
+bin/new-api-hot
+docker-compose.local.yml
 
 electron/node_modules
 electron/dist

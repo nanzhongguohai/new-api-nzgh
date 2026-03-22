@@ -50,6 +50,7 @@ import {
   IconAlertTriangle,
 } from '@douyinfe/semi-icons';
 import { FaRandom } from 'react-icons/fa';
+import { extractCodexUsageSummary } from './modals/codexUsageUtils';
 
 // Render functions
 const renderType = (type, record = {}, t) => {
@@ -251,6 +252,68 @@ const renderResponseTime = (responseTime, t) => {
       </Tag>
     );
   }
+};
+
+const renderCodexBalance = (record, updateChannelBalance, t) => {
+  const summary = extractCodexUsageSummary(record?.other_info);
+  const windowType = summary?.active_window_type;
+  const windowLabel =
+    windowType === 'fiveHour' ? '5h' : windowType === 'weekly' ? t('周') : 'Codex';
+
+  if (!summary) {
+    return (
+      <Tooltip content={t('Codex 用量未加载，点击更新')}>
+        <Tag
+          color='blue'
+          type='light'
+          shape='circle'
+          onClick={() => updateChannelBalance(record)}
+        >
+          {t('点击更新')}
+        </Tag>
+      </Tooltip>
+    );
+  }
+
+  const used = Number(summary.active_used ?? 0);
+  const remaining = Number(summary.active_remaining ?? 0);
+  const usedPercent = Number(summary.active_used_percent ?? 0);
+  const windowLabelText = windowType === 'fiveHour' ? t('5小时') : t('周度');
+
+  return (
+    <Space spacing={1}>
+      <Tooltip content={t('当前按 ${window} 窗口展示').replace('${window}', windowLabelText)}>
+        <Tag
+          color='blue'
+          type='light'
+          shape='circle'
+          onClick={() => updateChannelBalance(record)}
+        >
+          {windowLabel}
+        </Tag>
+      </Tooltip>
+      <Tooltip content={`${t('已用')}：${used} (${usedPercent.toFixed(1)}%)`}>
+        <Tag
+          color='white'
+          type='ghost'
+          shape='circle'
+          onClick={() => updateChannelBalance(record)}
+        >
+          {used}
+        </Tag>
+      </Tooltip>
+      <Tooltip content={`${t('剩余')}：${remaining} · ${t('点击更新')}`}>
+        <Tag
+          color='white'
+          type='ghost'
+          shape='circle'
+          onClick={() => updateChannelBalance(record)}
+        >
+          {remaining}
+        </Tag>
+      </Tooltip>
+    </Space>
+  );
 };
 
 const isRequestPassThroughEnabled = (record) => {
@@ -528,6 +591,9 @@ export const getChannelsColumns = ({
       dataIndex: 'expired_time',
       render: (text, record, index) => {
         if (record.children === undefined) {
+          if (record.type === 57) {
+            return <div>{renderCodexBalance(record, updateChannelBalance, t)}</div>;
+          }
           return (
             <div>
               <Space spacing={1}>

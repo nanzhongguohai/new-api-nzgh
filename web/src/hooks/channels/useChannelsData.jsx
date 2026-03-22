@@ -39,6 +39,11 @@ import { useChannelUpstreamUpdates } from './useChannelUpstreamUpdates';
 import { parseUpstreamUpdateMeta } from './upstreamUpdateUtils';
 import { Modal, Button } from '@douyinfe/semi-ui';
 import { openCodexUsageModal } from '../../components/table/channels/modals/CodexUsageModal';
+import {
+  buildCodexUsageSummary,
+  extractCodexUsageSummary,
+  mergeCodexUsageSummary,
+} from '../../components/table/channels/modals/codexUsageUtils';
 
 export const useChannelsData = () => {
   const { t } = useTranslation();
@@ -120,6 +125,7 @@ export const useChannelsData = () => {
 
   // Refs
   const requestCounter = useRef(0);
+  const codexUsageRequestCounter = useRef(0);
   const allSelectingRef = useRef(false);
   const [formApi, setFormApi] = useState(null);
 
@@ -304,6 +310,7 @@ export const useChannelsData = () => {
       }
     }
     setChannels(channelDates);
+    return channelDates;
   };
 
   // Get form values helper
@@ -314,6 +321,74 @@ export const useChannelsData = () => {
       searchGroup: formValues.searchGroup || '',
       searchModel: formValues.searchModel || '',
     };
+  };
+
+  const updateCodexUsageSummary = (channelId, summary) => {
+    setChannels((prevChannels) => {
+      let updated = false;
+      const newChannels = [...prevChannels];
+
+      newChannels.forEach((channel) => {
+        if (channel.children !== undefined) {
+          channel.children.forEach((child) => {
+            if (child.id === channelId) {
+              child.other_info = mergeCodexUsageSummary(child.other_info, summary);
+              child.balance_updated_time = summary.fetched_at;
+              updated = true;
+            }
+          });
+        } else if (channel.id === channelId) {
+          channel.other_info = mergeCodexUsageSummary(channel.other_info, summary);
+          channel.balance_updated_time = summary.fetched_at;
+          updated = true;
+        }
+      });
+
+      return updated ? newChannels : prevChannels;
+    });
+  };
+
+  const fetchCodexUsagePayload = async (channelId) => {
+    const res = await API.get(`/api/channel/${channelId}/codex/usage`, {
+      skipErrorHandler: true,
+    });
+    return res?.data;
+  };
+
+  const hydrateCodexUsageSummaries = async (formattedChannels) => {
+    const reqId = ++codexUsageRequestCounter.current;
+    const currentTs = Math.floor(Date.now() / 1000);
+    const flatChannels = [];
+
+    formattedChannels.forEach((channel) => {
+      if (channel?.children !== undefined) {
+        channel.children.forEach((child) => flatChannels.push(child));
+        return;
+      }
+      flatChannels.push(channel);
+    });
+
+    const codexChannels = flatChannels.filter((channel) => {
+      if (channel?.type !== 57) return false;
+      const summary = extractCodexUsageSummary(channel.other_info);
+      const fetchedAt = Number(summary?.fetched_at || 0);
+      return !Number.isFinite(fetchedAt) || fetchedAt <= 0 || currentTs-fetchedAt > 300;
+    });
+
+    await Promise.all(
+      codexChannels.map(async (channel) => {
+        try {
+          const payload = await fetchCodexUsagePayload(channel.id);
+          if (reqId !== codexUsageRequestCounter.current) return;
+          if (!payload?.success) return;
+          const summary = buildCodexUsageSummary(payload.data);
+          if (!summary) return;
+          updateCodexUsageSummary(channel.id, summary);
+        } catch (error) {
+          // Ignore background refresh failures to avoid noisy table loading.
+        }
+      }),
+    );
   };
 
   // Load channels
@@ -364,8 +439,9 @@ export const useChannelsData = () => {
         );
         setTypeCounts({ ...type_counts, all: sumAll });
       }
-      setChannelFormat(items, enableTagMode);
+      const formattedChannels = setChannelFormat(items, enableTagMode);
       setChannelCount(total);
+      hydrateCodexUsageSummaries(formattedChannels).catch(() => {});
     } else {
       showError(message);
     }
@@ -409,9 +485,10 @@ export const useChannelsData = () => {
           0,
         );
         setTypeCounts({ ...type_counts, all: sumAll });
-        setChannelFormat(items, enableTagMode);
+        const formattedChannels = setChannelFormat(items, enableTagMode);
         setChannelCount(total);
         setActivePage(page);
+        hydrateCodexUsageSummaries(formattedChannels).catch(() => {});
       } else {
         showError(message);
       }
@@ -755,15 +832,34 @@ export const useChannelsData = () => {
 
   const updateChannelBalance = async (record) => {
     if (record?.type === 57) {
-      openCodexUsageModal({
-        t,
-        record,
-        onCopy: async (text) => {
-          const ok = await copy(text);
-          if (ok) showSuccess(t('已复制'));
-          else showError(t('复制失败'));
-        },
-      });
+      try {
+        const payload = await fetchCodexUsagePayload(record.id);
+        if (!payload?.success) {
+          showError(payload?.message || t('获取用量失败'));
+          return;
+        }
+        const summary = buildCodexUsageSummary(payload.data);
+        let modalRecord = record;
+        if (summary) {
+          updateChannelProperty(record.id, (channel) => {
+            channel.other_info = mergeCodexUsageSummary(channel.other_info, summary);
+            channel.balance_updated_time = summary.fetched_at;
+            modalRecord = channel;
+          });
+        }
+        openCodexUsageModal({
+          t,
+          record: modalRecord,
+          payload,
+          onCopy: async (text) => {
+            const ok = await copy(text);
+            if (ok) showSuccess(t('已复制'));
+            else showError(t('复制失败'));
+          },
+        });
+      } catch (error) {
+        showError(error?.response?.data?.message || error?.message || t('获取用量失败'));
+      }
       return;
     }
 

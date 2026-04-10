@@ -71,7 +71,7 @@ export default function SettingsPerformance(props) {
     'performance_setting.monitor_enabled': false,
     'performance_setting.monitor_cpu_threshold': 90,
     'performance_setting.monitor_memory_threshold': 90,
-    'performance_setting.monitor_disk_threshold': 90,
+    'performance_setting.monitor_disk_threshold': 95,
   });
   const refForm = useRef();
   const [inputsRow, setInputsRow] = useState(inputs);
@@ -356,7 +356,6 @@ export default function SettingsPerformance(props) {
                   label={t('CPU 阈值 (%)')}
                   extraText={t('CPU 使用率超过此值时拒绝请求')}
                   min={0}
-                  max={100}
                   onChange={handleFieldChange(
                     'performance_setting.monitor_cpu_threshold',
                   )}

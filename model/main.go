@@ -133,7 +133,9 @@ func chooseDB(envName string, isLog bool) (*gorm.DB, error) {
 				DSN:                  dsn,
 				PreferSimpleProtocol: true, // disables implicit prepared statement usage
 			}), &gorm.Config{
-				PrepareStmt: true, // precompile SQL
+				// PostgreSQL 历史库切换/导入后，连接池里的 prepared statement 容易残留旧参数类型，
+				// 触发 "failed to encode args ... for text (OID 25)" 这类错误，因此这里禁用 GORM PrepareStmt。
+				PrepareStmt: false,
 			})
 		}
 		if strings.HasPrefix(dsn, "local") {

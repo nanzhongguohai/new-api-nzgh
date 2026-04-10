@@ -18,6 +18,52 @@ import (
 	"gorm.io/gorm"
 )
 
+func normalizeOptionalJSONString(value **string, fieldName string) error {
+	if value == nil || *value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(**value)
+	if trimmed == "" {
+		normalized := "{}"
+		*value = &normalized
+		return nil
+	}
+
+	var parsed interface{}
+	if err := common.UnmarshalJsonStr(trimmed, &parsed); err != nil {
+		return fmt.Errorf("%s 必须是合法的 JSON 格式: %w", fieldName, err)
+	}
+	normalized, err := common.Marshal(parsed)
+	if err != nil {
+		return fmt.Errorf("%s JSON 规范化失败: %w", fieldName, err)
+	}
+	normalizedStr := string(normalized)
+	*value = &normalizedStr
+	return nil
+}
+
+func normalizeJSONStringValue(value *string, fieldName string) error {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		*value = "{}"
+		return nil
+	}
+
+	var parsed interface{}
+	if err := common.UnmarshalJsonStr(trimmed, &parsed); err != nil {
+		return fmt.Errorf("%s 必须是合法的 JSON 格式: %w", fieldName, err)
+	}
+	normalized, err := common.Marshal(parsed)
+	if err != nil {
+		return fmt.Errorf("%s JSON 规范化失败: %w", fieldName, err)
+	}
+	*value = string(normalized)
+	return nil
+}
+
 type Channel struct {
 	Id                 int     `json:"id"`
 	Type               int     `json:"type" gorm:"default:0"`
@@ -69,13 +115,40 @@ type ChannelInfo struct {
 
 // Value implements driver.Valuer interface
 func (c ChannelInfo) Value() (driver.Value, error) {
-	return common.Marshal(&c)
+	jsonBytes, err := common.Marshal(&c)
+	if err != nil {
+		return nil, err
+	}
+	// PostgreSQL json/jsonb 列通过 database/sql 写入时，返回 []byte 会被驱动按 bytea 处理，
+	// 在部分场景下触发 "invalid input syntax for type json"。这里统一返回 string。
+	return string(jsonBytes), nil
 }
 
 // Scan implements sql.Scanner interface
 func (c *ChannelInfo) Scan(value interface{}) error {
-	bytesValue, _ := value.([]byte)
-	return common.Unmarshal(bytesValue, c)
+	switch v := value.(type) {
+	case nil:
+		*c = ChannelInfo{}
+		return nil
+	case []byte:
+		if len(v) == 0 {
+			*c = ChannelInfo{}
+			return nil
+		}
+		return common.Unmarshal(v, c)
+	case string:
+		if strings.TrimSpace(v) == "" {
+			*c = ChannelInfo{}
+			return nil
+		}
+		return common.UnmarshalJsonStr(v, c)
+	default:
+		jsonBytes, err := common.Marshal(v)
+		if err != nil {
+			return err
+		}
+		return common.Unmarshal(jsonBytes, c)
+	}
 }
 
 func (channel *Channel) GetKeys() []string {
@@ -370,6 +443,12 @@ func BatchInsertChannels(channels []Channel) error {
 	}()
 
 	for _, chunk := range lo.Chunk(channels, 50) {
+		for i := range chunk {
+			if err := chunk[i].NormalizeJSONFieldsForCreate(); err != nil {
+				tx.Rollback()
+				return err
+			}
+		}
 		if err := tx.Create(&chunk).Error; err != nil {
 			tx.Rollback()
 			return err
@@ -445,8 +524,36 @@ func (channel *Channel) GetStatusCodeMapping() string {
 	return *channel.StatusCodeMapping
 }
 
+func (channel *Channel) NormalizeJSONFieldsForCreate() error {
+	if err := normalizeOptionalJSONString(&channel.ModelMapping, "模型映射"); err != nil {
+		return err
+	}
+	if err := normalizeOptionalJSONString(&channel.StatusCodeMapping, "状态码复写"); err != nil {
+		return err
+	}
+	if err := normalizeOptionalJSONString(&channel.Setting, "渠道额外设置"); err != nil {
+		return err
+	}
+	if err := normalizeOptionalJSONString(&channel.ParamOverride, "参数覆盖"); err != nil {
+		return err
+	}
+	if err := normalizeOptionalJSONString(&channel.HeaderOverride, "请求头覆盖"); err != nil {
+		return err
+	}
+	if err := normalizeJSONStringValue(&channel.OtherSettings, "其他设置"); err != nil {
+		return err
+	}
+	if err := normalizeJSONStringValue(&channel.OtherInfo, "渠道附加信息"); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (channel *Channel) Insert() error {
 	var err error
+	if err = channel.NormalizeJSONFieldsForCreate(); err != nil {
+		return err
+	}
 	err = DB.Create(channel).Error
 	if err != nil {
 		return err

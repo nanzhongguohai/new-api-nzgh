@@ -3,6 +3,7 @@ package model
 import (
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -66,4 +67,35 @@ func TestNormalizeJSONFieldsForCreate_CompactsValidJSON(t *testing.T) {
 	require.Equal(t, "{\"X-Test\":\"1\"}", *channel.HeaderOverride)
 	require.Equal(t, "{\"vertex_key_type\":\"json\"}", channel.OtherSettings)
 	require.Equal(t, "{\"status_reason\":\"ok\"}", channel.OtherInfo)
+}
+
+func TestHandlerMultiKeyUpdate_ReenableAutoDisabledChannel(t *testing.T) {
+	channel := &Channel{
+		Status: common.ChannelStatusAutoDisabled,
+		Key:    "key-1\nkey-2",
+		ChannelInfo: ChannelInfo{
+			IsMultiKey:         true,
+			MultiKeySize:       2,
+			MultiKeyStatusList: map[int]int{0: common.ChannelStatusAutoDisabled, 1: common.ChannelStatusAutoDisabled},
+			MultiKeyDisabledReason: map[int]string{
+				0: "quota exceeded",
+				1: "quota exceeded",
+			},
+			MultiKeyDisabledTime: map[int]int64{
+				0: 100,
+				1: 200,
+			},
+		},
+	}
+
+	handlerMultiKeyUpdate(channel, "key-1", common.ChannelStatusEnabled, "")
+
+	require.Equal(t, common.ChannelStatusEnabled, channel.Status)
+	require.Equal(t, map[int]int{1: common.ChannelStatusAutoDisabled}, channel.ChannelInfo.MultiKeyStatusList)
+	require.NotContains(t, channel.ChannelInfo.MultiKeyDisabledReason, 0)
+	require.NotContains(t, channel.ChannelInfo.MultiKeyDisabledTime, 0)
+
+	info := channel.GetOtherInfo()
+	require.Equal(t, "", info["status_reason"])
+	require.NotNil(t, info["status_time"])
 }

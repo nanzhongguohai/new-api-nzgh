@@ -73,6 +73,10 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 			localErr: fmt.Errorf("%s channel test is not supported", channelTypeName),
 		}
 	}
+	if channel != nil && channel.Type == constant.ChannelTypeCodex {
+		// Codex upstream currently requires stream=true on /v1/responses.
+		isStream = true
+	}
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 

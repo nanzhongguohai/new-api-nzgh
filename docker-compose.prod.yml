@@ -2,12 +2,18 @@ services:
   new-api:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.prod
     env_file:
       - prod.env
     environment:
       PORT: 3000
       TZ: Asia/Shanghai
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      all_proxy: ""
     command: --log-dir /app/logs
     restart: always
     volumes:
@@ -19,17 +25,19 @@ services:
       - "host.docker.internal:host-gateway"
     networks:
       - new-api-prod
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/status | grep -o '\"success\":\\s*true' || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
   nginx:
     image: nginx:1.27-alpine
     depends_on:
       - new-api
     restart: always
+    environment:
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      all_proxy: ""
     ports:
       - "127.0.0.1:${PORT:-10011}:80"
     volumes:
@@ -39,7 +47,7 @@ services:
     networks:
       - new-api-prod
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://localhost/health | grep -o '\"success\":\\s*true' || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/health | grep -q '\"success\":true'"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -1,0 +1,10 @@
+FROM alpine:3.20 AS certs
+
+FROM debian:bookworm-slim
+
+COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY bin/new-api-prod /new-api
+
+EXPOSE 3000
+WORKDIR /data
+ENTRYPOINT ["/new-api"]

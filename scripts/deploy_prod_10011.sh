@@ -35,10 +35,17 @@ go build -ldflags "-s -w" -o "$BINARY_NAME" main.go
 
 # 3. 停止旧进程
 echo "🛑 步骤 3/4: 停止端口 $PORT 的旧进程..."
-OLD_PID=$(lsof -t -i:"$PORT" || true)
-if [[ -n "$OLD_PID" ]]; then
-    echo "Killing process $OLD_PID"
-    kill "$OLD_PID" || kill -9 "$OLD_PID"
+mapfile -t OLD_PIDS < <(lsof -t -i:"$PORT" 2>/dev/null | awk '!seen[$0]++')
+if (( ${#OLD_PIDS[@]} > 0 )); then
+    echo "Killing process(es) ${OLD_PIDS[*]}"
+    kill "${OLD_PIDS[@]}" 2>/dev/null || true
+    sleep 1
+
+    mapfile -t REMAINING_PIDS < <(lsof -t -i:"$PORT" 2>/dev/null | awk '!seen[$0]++')
+    if (( ${#REMAINING_PIDS[@]} > 0 )); then
+        echo "Force killing process(es) ${REMAINING_PIDS[*]}"
+        kill -9 "${REMAINING_PIDS[@]}" 2>/dev/null || true
+    fi
 fi
 
 # 4. 启动新进程

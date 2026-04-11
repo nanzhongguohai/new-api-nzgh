@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,9 +18,11 @@ import (
 )
 
 var (
-	httpClient      *http.Client
-	proxyClientLock sync.Mutex
-	proxyClients    = make(map[string]*http.Client)
+	httpClient       *http.Client
+	proxyClientLock  sync.Mutex
+	proxyClients     = make(map[string]*http.Client)
+	containerEnvOnce sync.Once
+	containerEnvFlag bool
 )
 
 func checkRedirect(req *http.Request, via []*http.Request) error {
@@ -82,8 +86,72 @@ func ResetProxyClientCache() {
 	proxyClients = make(map[string]*http.Client)
 }
 
+func isContainerizedRuntime() bool {
+	containerEnvOnce.Do(func() {
+		if _, err := os.Stat("/.dockerenv"); err == nil {
+			containerEnvFlag = true
+		}
+	})
+	return containerEnvFlag
+}
+
+func isLoopbackProxyHost(host string) bool {
+	host = strings.TrimSpace(strings.ToLower(host))
+	if host == "" {
+		return false
+	}
+	switch host {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	default:
+		return false
+	}
+}
+
+func getContainerReachableEnvProxy() string {
+	keys := []string{
+		"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+		"http_proxy", "https_proxy", "all_proxy",
+	}
+	for _, key := range keys {
+		value := strings.TrimSpace(os.Getenv(key))
+		if value == "" {
+			continue
+		}
+		parsed, err := url.Parse(value)
+		if err != nil {
+			continue
+		}
+		if !isLoopbackProxyHost(parsed.Hostname()) {
+			return value
+		}
+	}
+	return ""
+}
+
+func normalizeProxyURL(proxyURL string) string {
+	proxyURL = strings.TrimSpace(proxyURL)
+	if proxyURL == "" || !isContainerizedRuntime() {
+		return proxyURL
+	}
+
+	parsed, err := url.Parse(proxyURL)
+	if err != nil {
+		return proxyURL
+	}
+	if parsed.Port() != "7890" || !isLoopbackProxyHost(parsed.Hostname()) {
+		return proxyURL
+	}
+
+	if envProxy := getContainerReachableEnvProxy(); envProxy != "" {
+		return envProxy
+	}
+	return proxyURL
+}
+
 // NewProxyHttpClient 创建支持代理的 HTTP 客户端
 func NewProxyHttpClient(proxyURL string) (*http.Client, error) {
+	proxyURL = normalizeProxyURL(proxyURL)
 	if proxyURL == "" {
 		if client := GetHttpClient(); client != nil {
 			return client, nil

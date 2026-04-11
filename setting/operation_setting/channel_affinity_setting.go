@@ -81,7 +81,7 @@ var channelAffinitySetting = ChannelAffinitySetting{
 	Rules: []ChannelAffinityRule{
 		{
 			Name:       "codex cli trace",
-			ModelRegex: []string{"^gpt-.*$"},
+			ModelRegex: []string{"^gpt-.*$", "^m_[A-Za-z0-9]+$"},
 			PathRegex:  []string{"/v1/responses"},
 			KeySources: []ChannelAffinityKeySource{
 				{Type: "gjson", Path: "prompt_cache_key"},

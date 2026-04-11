@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -25,6 +26,30 @@ import (
 type ModelRequest struct {
 	Model string `json:"model"`
 	Group string `json:"group,omitempty"`
+}
+
+func isTransientResponsesModelName(modelName string) bool {
+	modelName = strings.TrimSpace(modelName)
+	if len(modelName) <= 2 || !strings.HasPrefix(modelName, "m_") {
+		return false
+	}
+	for _, r := range modelName[2:] {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' && r != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func canReuseAffinityChannelForTransientModel(channel *model.Channel, usingGroup string, modelName string) bool {
+	if channel == nil || !isTransientResponsesModelName(modelName) {
+		return false
+	}
+	usingGroup = strings.TrimSpace(usingGroup)
+	if usingGroup == "" || usingGroup == "auto" {
+		return false
+	}
+	return slices.Contains(channel.GetGroups(), usingGroup)
 }
 
 func Distribute() func(c *gin.Context) {
@@ -104,6 +129,10 @@ func Distribute() func(c *gin.Context) {
 					if err == nil && preferred != nil {
 						if preferred.Status != common.ChannelStatusEnabled {
 							service.InvalidateMatchedChannelAffinity(c)
+						} else if canReuseAffinityChannelForTransientModel(preferred, usingGroup, modelRequest.Model) {
+							channel = preferred
+							selectGroup = usingGroup
+							service.MarkChannelAffinityUsed(c, usingGroup, preferred.Id)
 						} else if usingGroup == "auto" {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 							autoGroups := service.GetUserAutoGroup(userGroup)

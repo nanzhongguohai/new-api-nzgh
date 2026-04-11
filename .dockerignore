@@ -8,3 +8,10 @@ docs
 .eslintcache
 .gocache
 /web/node_modules
+backups
+data
+logs
+prod.env
+*.env
+new-api
+new-api-*

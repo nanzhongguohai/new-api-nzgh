@@ -31,6 +31,7 @@ import {
 import { API, showError } from '../../../../helpers';
 import {
   clampPercent,
+  normalizePlanType,
   resolveRateLimitWindows,
 } from './codexUsageUtils';
 

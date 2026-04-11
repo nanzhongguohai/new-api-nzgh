@@ -5,9 +5,9 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -37,6 +37,20 @@ type CodexOAuthAuthorizationFlow struct {
 	Verifier     string
 	Challenge    string
 	AuthorizeURL string
+}
+
+type codexOAuthTokenPayload struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresIn    int    `json:"expires_in"`
+}
+
+type codexOAuthErrorEnvelope struct {
+	Error struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+		Code    string `json:"code"`
+	} `json:"error"`
 }
 
 func RefreshCodexOAuthToken(ctx context.Context, refreshToken string) (*CodexOAuthTokenResult, error) {
@@ -114,28 +128,7 @@ func refreshCodexOAuthToken(
 	}
 	defer resp.Body.Close()
 
-	var payload struct {
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-		ExpiresIn    int    `json:"expires_in"`
-	}
-
-	if err := common.DecodeJson(resp.Body, &payload); err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("codex oauth refresh failed: status=%d", resp.StatusCode)
-	}
-
-	if strings.TrimSpace(payload.AccessToken) == "" || strings.TrimSpace(payload.RefreshToken) == "" || payload.ExpiresIn <= 0 {
-		return nil, errors.New("codex oauth refresh response missing fields")
-	}
-
-	return &CodexOAuthTokenResult{
-		AccessToken:  strings.TrimSpace(payload.AccessToken),
-		RefreshToken: strings.TrimSpace(payload.RefreshToken),
-		ExpiresAt:    time.Now().Add(time.Duration(payload.ExpiresIn) * time.Second),
-	}, nil
+	return decodeCodexOAuthTokenResponse(resp, "codex oauth refresh failed")
 }
 
 func exchangeCodexAuthorizationCode(
@@ -176,25 +169,7 @@ func exchangeCodexAuthorizationCode(
 	}
 	defer resp.Body.Close()
 
-	var payload struct {
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-		ExpiresIn    int    `json:"expires_in"`
-	}
-	if err := common.DecodeJson(resp.Body, &payload); err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("codex oauth code exchange failed: status=%d", resp.StatusCode)
-	}
-	if strings.TrimSpace(payload.AccessToken) == "" || strings.TrimSpace(payload.RefreshToken) == "" || payload.ExpiresIn <= 0 {
-		return nil, errors.New("codex oauth token response missing fields")
-	}
-	return &CodexOAuthTokenResult{
-		AccessToken:  strings.TrimSpace(payload.AccessToken),
-		RefreshToken: strings.TrimSpace(payload.RefreshToken),
-		ExpiresAt:    time.Now().Add(time.Duration(payload.ExpiresIn) * time.Second),
-	}, nil
+	return decodeCodexOAuthTokenResponse(resp, "codex oauth code exchange failed")
 }
 
 func getCodexOAuthHTTPClient(proxyURL string) (*http.Client, error) {
@@ -310,8 +285,60 @@ func decodeJWTClaims(token string) (map[string]any, bool) {
 		return nil, false
 	}
 	var claims map[string]any
-	if err := json.Unmarshal(payloadRaw, &claims); err != nil {
+	if err := common.Unmarshal(payloadRaw, &claims); err != nil {
 		return nil, false
 	}
 	return claims, true
+}
+
+func decodeCodexOAuthTokenResponse(resp *http.Response, action string) (*CodexOAuthTokenResult, error) {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, buildCodexOAuthResponseError(action, resp.StatusCode, body)
+	}
+
+	var payload codexOAuthTokenPayload
+	if err := common.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(payload.AccessToken) == "" || strings.TrimSpace(payload.RefreshToken) == "" || payload.ExpiresIn <= 0 {
+		return nil, errors.New("codex oauth token response missing fields")
+	}
+
+	return &CodexOAuthTokenResult{
+		AccessToken:  strings.TrimSpace(payload.AccessToken),
+		RefreshToken: strings.TrimSpace(payload.RefreshToken),
+		ExpiresAt:    time.Now().Add(time.Duration(payload.ExpiresIn) * time.Second),
+	}, nil
+}
+
+func buildCodexOAuthResponseError(action string, statusCode int, body []byte) error {
+	message := ""
+	code := ""
+
+	var envelope codexOAuthErrorEnvelope
+	if err := common.Unmarshal(body, &envelope); err == nil {
+		message = strings.TrimSpace(envelope.Error.Message)
+		code = strings.TrimSpace(envelope.Error.Code)
+	}
+
+	if message == "" {
+		raw := strings.TrimSpace(string(body))
+		if raw != "" {
+			message = raw
+		}
+	}
+
+	switch {
+	case message != "" && code != "":
+		return fmt.Errorf("%s: status=%d message=%s code=%s", action, statusCode, message, code)
+	case message != "":
+		return fmt.Errorf("%s: status=%d message=%s", action, statusCode, message)
+	default:
+		return fmt.Errorf("%s: status=%d", action, statusCode)
+	}
 }

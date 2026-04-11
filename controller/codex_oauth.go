@@ -145,7 +145,7 @@ func completeCodexOAuthWithChannelID(c *gin.Context, channelID int) {
 		return
 	}
 
-	channelProxy := ""
+	channelProxy := service.ResolveChannelProxyValue(constant.ChannelTypeCodex, "")
 	if channelID > 0 {
 		ch, err := model.GetChannelById(channelID, false)
 		if err != nil {
@@ -181,7 +181,7 @@ func completeCodexOAuthWithChannelID(c *gin.Context, channelID int) {
 	tokenRes, err := service.ExchangeCodexAuthorizationCodeWithProxy(ctx, code, verifier, channelProxy)
 	if err != nil {
 		common.SysError("failed to exchange codex authorization code: " + err.Error())
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "授权码交换失败，请重试"})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}
 

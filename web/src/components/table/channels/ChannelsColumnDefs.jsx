@@ -50,7 +50,10 @@ import {
   IconAlertTriangle,
 } from '@douyinfe/semi-icons';
 import { FaRandom } from 'react-icons/fa';
-import { extractCodexUsageSummary } from './modals/codexUsageUtils';
+import {
+  clampPercent,
+  extractCodexUsageSummary,
+} from './modals/codexUsageUtils';
 
 // Render functions
 const renderType = (type, record = {}, t) => {
@@ -256,9 +259,6 @@ const renderResponseTime = (responseTime, t) => {
 
 const renderCodexBalance = (record, updateChannelBalance, t) => {
   const summary = extractCodexUsageSummary(record?.other_info);
-  const windowType = summary?.active_window_type;
-  const windowLabel =
-    windowType === 'fiveHour' ? '5h' : windowType === 'weekly' ? t('周') : 'Codex';
 
   if (!summary) {
     return (
@@ -275,41 +275,39 @@ const renderCodexBalance = (record, updateChannelBalance, t) => {
     );
   }
 
-  const used = Number(summary.active_used ?? 0);
-  const remaining = Number(summary.active_remaining ?? 0);
-  const usedPercent = Number(summary.active_used_percent ?? 0);
-  const windowLabelText = windowType === 'fiveHour' ? t('5小时') : t('周度');
+  const fiveHourWindow = summary?.windows?.fiveHour ?? null;
+  const weeklyWindow = summary?.windows?.weekly ?? null;
+  const getRemainingPercent = (windowData) => {
+    if (!windowData || typeof windowData !== 'object') {
+      return null;
+    }
+    return clampPercent(100 - Number(windowData.used_percent ?? 0));
+  };
+  const fiveHourRemainingPercent = getRemainingPercent(fiveHourWindow);
+  const weeklyRemainingPercent = getRemainingPercent(weeklyWindow);
+  const formatPercent = (value) =>
+    value == null ? '-' : `${Number(value).toFixed(1)}%`;
 
   return (
     <Space spacing={1}>
-      <Tooltip content={t('当前按 ${window} 窗口展示').replace('${window}', windowLabelText)}>
+      <Tooltip content={`${t('5小时')} ${t('剩余')}：${formatPercent(fiveHourRemainingPercent)}`}>
         <Tag
           color='blue'
           type='light'
           shape='circle'
           onClick={() => updateChannelBalance(record)}
         >
-          {windowLabel}
+          {t('5小时')} {formatPercent(fiveHourRemainingPercent)}
         </Tag>
       </Tooltip>
-      <Tooltip content={`${t('已用')}：${used} (${usedPercent.toFixed(1)}%)`}>
+      <Tooltip content={`${t('周')} ${t('剩余')}：${formatPercent(weeklyRemainingPercent)}`}>
         <Tag
           color='white'
           type='ghost'
           shape='circle'
           onClick={() => updateChannelBalance(record)}
         >
-          {used}
-        </Tag>
-      </Tooltip>
-      <Tooltip content={`${t('剩余')}：${remaining} · ${t('点击更新')}`}>
-        <Tag
-          color='white'
-          type='ghost'
-          shape='circle'
-          onClick={() => updateChannelBalance(record)}
-        >
-          {remaining}
+          {t('周')} {formatPercent(weeklyRemainingPercent)}
         </Tag>
       </Tooltip>
     </Space>

@@ -25,6 +25,7 @@ tiktoken_cache
 plans
 .claude
 .cursor
+bin/
 bin/new-api-deploy
 bin/new-api-local
 bin/new-api-hot

@@ -42,6 +42,8 @@ REDIS_CONN_STRING=redis://host.docker.internal:6379
 ./scripts/deploy_prod_10011.sh
 ```
 
+该脚本会先在宿主机构建前端和 Go 二进制，然后再用 `Dockerfile.prod` 封装运行时镜像。这样可以避免 Docker 构建阶段再去访问前端依赖、Go 模块和系统包仓库。
+
 4. 宿主机 Nginx 继续反代到 `127.0.0.1:${PORT}` 即可，不需要再把请求直接打到 Go 进程。
 
 ## 宿主机 Nginx 的边界
@@ -65,3 +67,9 @@ REDIS_CONN_STRING=redis://host.docker.internal:6379
 - `proxy_buffering off`
 - 保留 `Upgrade` / `Connection` 头，兼容 SSE 和长连接场景
 - 信任来自宿主机 `127.0.0.1` 的转发头，继续向应用透传真实客户端 IP
+
+## 宿主机前置条件
+
+- 已安装 Docker Compose v2
+- 已安装 `bun`
+- 已安装 Go（建议版本不低于项目要求）

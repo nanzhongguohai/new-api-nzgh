@@ -39,7 +39,7 @@ echo "🚀 开始项目内 Nginx 隔离部署 (Port: $PUBLIC_PORT)"
 echo "------------------------------------------------"
 echo "🌐 使用代理: $HTTP_PROXY"
 
-echo "🔎 步骤 1/6: 校验环境..."
+echo "🔎 步骤 1/8: 校验环境..."
 if grep -Eq '^(SQL_DSN|LOG_SQL_DSN)=.*(localhost|127\.0\.0\.1)' "$ENV_FILE"; then
     echo "❌ 错误: 检测到数据库 DSN 仍指向 localhost/127.0.0.1。"
     echo "   容器内访问宿主机数据库时，请改为 host.docker.internal。"
@@ -57,19 +57,22 @@ fi
 "${COMPOSE_CMD[@]}" config >/dev/null
 
 echo "📦 步骤 2/8: 构建前端..."
-if [[ -d "web" ]]; then
-    if ! command -v bun >/dev/null 2>&1; then
-        echo "❌ 错误: 未找到 bun，请先安装 bun"
-        exit 1
+if ! command -v bun >/dev/null 2>&1; then
+    echo "❌ 错误: 未找到 bun，请先安装 bun"
+    exit 1
+fi
+WEB_APPS=("web/default" "web/classic")
+for app_dir in "${WEB_APPS[@]}"; do
+    if [[ ! -f "$app_dir/package.json" ]]; then
+        echo "⚠️ 警告: $app_dir 不存在，跳过"
+        continue
     fi
     (
-        cd web
+        cd "$app_dir"
         bun install
-        DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION="$(cat ../VERSION)" bun run build
+        DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION="$(cat "$ROOT_DIR/VERSION")" bun run build
     )
-else
-    echo "⚠️ 警告: web 目录不存在，跳过前端构建"
-fi
+done
 
 echo "🔨 步骤 3/8: 构建后端..."
 mkdir -p "$(dirname "$RUNTIME_BINARY_PATH")"

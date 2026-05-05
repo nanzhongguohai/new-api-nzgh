@@ -6,7 +6,7 @@ cmd = "bash ./scripts/dev-rebuild.sh"
 entrypoint = ["bash", "./scripts/dev-run.sh"]
 full_bin = "bash ./scripts/dev-run.sh"
 delay = 1000
-exclude_dir = ["bin", "logs", "node_modules", "tmp", "data", ".git", "web/dist"]
+exclude_dir = ["bin", "logs", "node_modules", "tmp", "data", ".git", "web/dist", "web/default/dist", "web/classic/dist"]
 exclude_regex = ["_test\\.go"]
 include_dir = [
   "common",
@@ -24,11 +24,26 @@ include_dir = [
   "service",
   "setting",
   "types",
-  "web/src",
-  "web/public"
+  "web/default/src",
+  "web/default/public",
+  "web/classic/src",
+  "web/classic/public"
 ]
 include_ext = ["go", "json", "yaml", "yml", "toml", "env", "html", "css", "js", "jsx", "ts", "tsx"]
-include_file = [".air.toml", ".env", "go.mod", "go.sum", "web/index.html", "web/package.json", "web/bun.lock", "web/bun.lockb"]
+include_file = [
+  ".air.toml",
+  ".env",
+  "go.mod",
+  "go.sum",
+  "web/default/index.html",
+  "web/default/package.json",
+  "web/default/bun.lock",
+  "web/default/rsbuild.config.ts",
+  "web/classic/index.html",
+  "web/classic/package.json",
+  "web/classic/bun.lock",
+  "web/classic/vite.config.js"
+]
 kill_delay = "2s"
 log = "tmp/air/build-errors.log"
 poll = false

@@ -41,6 +41,23 @@ import { useLocation } from 'react-router-dom';
 import { normalizeLanguage } from '../../i18n/language';
 const { Sider, Content, Header } = Layout;
 
+function applySystemBranding({ system_name, logo } = {}) {
+  if (system_name) {
+    document.title = system_name;
+  }
+  if (!logo) return;
+
+  const next = new URL(logo, window.location.href).href;
+  const existing = document.querySelectorAll("link[rel~='icon']");
+  if (existing.length === 1 && existing[0].href === next) return;
+
+  const linkElement = document.createElement('link');
+  linkElement.rel = 'icon';
+  linkElement.href = logo;
+  existing.forEach((link) => link.remove());
+  document.head.appendChild(linkElement);
+}
+
 const PageLayout = () => {
   const [userState, userDispatch] = useContext(UserContext);
   const [, statusDispatch] = useContext(StatusContext);
@@ -93,6 +110,7 @@ const PageLayout = () => {
       if (success) {
         statusDispatch({ type: 'set', payload: data });
         setStatusData(data);
+        applySystemBranding(data);
       } else {
         showError('Unable to connect to server');
       }
@@ -104,17 +122,10 @@ const PageLayout = () => {
   useEffect(() => {
     loadUser();
     loadStatus().catch(console.error);
-    let systemName = getSystemName();
-    if (systemName) {
-      document.title = systemName;
-    }
-    let logo = getLogo();
-    if (logo) {
-      let linkElement = document.querySelector("link[rel~='icon']");
-      if (linkElement) {
-        linkElement.href = logo;
-      }
-    }
+    applySystemBranding({
+      system_name: getSystemName(),
+      logo: getLogo(),
+    });
   }, []);
 
   useEffect(() => {

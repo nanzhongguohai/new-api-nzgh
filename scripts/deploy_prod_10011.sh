@@ -7,17 +7,9 @@ ENV_FILE="$ROOT_DIR/prod.env"
 COMPOSE_FILE="$ROOT_DIR/docker-compose.prod.yml"
 PROJECT_NAME="new-api-prod-10011"
 LEGACY_BINARY_NAME="new-api-10011"
-DEFAULT_PROXY_URL="http://127.0.0.1:7890"
 RUNTIME_BINARY_PATH="bin/new-api-prod"
 
 cd "$ROOT_DIR"
-
-export HTTP_PROXY="${HTTP_PROXY:-$DEFAULT_PROXY_URL}"
-export HTTPS_PROXY="${HTTPS_PROXY:-$DEFAULT_PROXY_URL}"
-export ALL_PROXY="${ALL_PROXY:-$DEFAULT_PROXY_URL}"
-export http_proxy="${http_proxy:-$HTTP_PROXY}"
-export https_proxy="${https_proxy:-$HTTPS_PROXY}"
-export all_proxy="${all_proxy:-$ALL_PROXY}"
 
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
     COMPOSE_CMD=(docker compose -p "$PROJECT_NAME" --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
@@ -37,7 +29,7 @@ PUBLIC_PORT="${PUBLIC_PORT:-10011}"
 echo "------------------------------------------------"
 echo "🚀 开始项目内 Nginx 隔离部署 (Port: $PUBLIC_PORT)"
 echo "------------------------------------------------"
-echo "🌐 使用代理: $HTTP_PROXY"
+echo "🌐 默认直连部署（如需代理，请显式导出 HTTP_PROXY/HTTPS_PROXY/ALL_PROXY）"
 
 echo "🔎 步骤 1/8: 校验环境..."
 if grep -Eq '^(SQL_DSN|LOG_SQL_DSN)=.*(localhost|127\.0\.0\.1)' "$ENV_FILE"; then

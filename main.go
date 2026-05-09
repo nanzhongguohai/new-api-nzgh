@@ -327,5 +327,13 @@ func InitResources() error {
 		// Don't return error, custom OAuth is not critical
 	}
 
+	// Initialize OIDC Provider (Authorization Server) features
+	_ = model.AutoMigrateOIDCClients()
+	if err = controller.InitOIDCProviderKeys(); err != nil {
+		common.SysError("failed to initialize OIDC Provider keys: " + err.Error())
+	} else {
+		common.SysLog("OIDC Provider initialized")
+	}
+
 	return nil
 }

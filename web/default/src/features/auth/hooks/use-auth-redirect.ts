@@ -23,6 +23,10 @@ function getSavedLanguage(user: User): string | undefined {
   }
 }
 
+function isBackendOAuthAuthorizeRedirect(path: string): boolean {
+  return path === '/oauth/authorize' || path.startsWith('/oauth/authorize?')
+}
+
 /**
  * Hook for handling authentication redirects and user data management
  */
@@ -69,6 +73,14 @@ export function useAuthRedirect() {
 
     // Navigate to target page
     const targetPath = redirectTo || '/dashboard'
+    if (
+      typeof window !== 'undefined' &&
+      isBackendOAuthAuthorizeRedirect(targetPath)
+    ) {
+      window.location.assign(targetPath)
+      return
+    }
+
     navigate({ to: targetPath, replace: true })
   }
 

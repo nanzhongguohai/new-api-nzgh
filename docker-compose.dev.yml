@@ -31,6 +31,8 @@ services:
       - REDIS_CONN_STRING=redis://redis
       - TZ=Asia/Shanghai
       - BATCH_UPDATE_ENABLED=true
+      - FRONTEND_BASE_URL=http://localhost:3001
+      - NODE_TYPE=slave
     depends_on:
       redis:
         condition: service_started

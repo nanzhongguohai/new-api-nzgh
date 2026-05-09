@@ -66,7 +66,25 @@ curl -X PUT http://localhost:3000/api/option \
 
 ## 步骤三：注册 OIDC 客户端
 
-在 new-api 数据库中注册 LobeChat 为受信任的 OIDC 客户端：
+在 new-api 数据库中注册 LobeChat 为受信任的 OIDC 客户端。
+
+### 连接数据库
+
+**开发环境（docker-compose.dev.yml）：**
+
+```bash
+docker exec -it new-api-dev-pg psql -U root -d new-api
+```
+
+**生产环境（docker-compose.yml）：**
+
+```bash
+docker exec -it postgres psql -U root -d new-api
+```
+
+进入 psql 后执行以下 SQL：
+
+### 生产环境
 
 ```sql
 INSERT INTO oidc_clients (client_id, client_secret, redirect_uri, name, enabled)
@@ -79,7 +97,7 @@ VALUES (
 );
 ```
 
-**开发环境示例：**
+### 开发环境
 
 ```sql
 INSERT INTO oidc_clients (client_id, client_secret, redirect_uri, name, enabled)
@@ -90,6 +108,21 @@ VALUES (
   'LobeChat',
   true
 );
+```
+
+也可一行命令直接执行（开发环境）：
+
+```bash
+docker exec -i new-api-dev-pg psql -U root -d new-api <<'SQL'
+INSERT INTO oidc_clients (client_id, client_secret, redirect_uri, name, enabled)
+VALUES ('lobehub', 'dev-secret', 'http://localhost:3210/api/auth/callback/new-api', 'LobeChat', true);
+SQL
+```
+
+执行后验证：
+
+```sql
+SELECT * FROM oidc_clients;
 ```
 
 | 字段 | 说明 |

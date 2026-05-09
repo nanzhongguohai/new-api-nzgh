@@ -39,6 +39,8 @@ services:
 #      - GOOGLE_ANALYTICS_ID=G-XXXXXXXXXX  # Google Analytics 的测量 ID (Google Analytics Measurement ID)
 #      - UMAMI_WEBSITE_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx  # Umami 网站 ID (Umami Website ID)
 #      - UMAMI_SCRIPT_URL=https://analytics.umami.is/script.js  # Umami 脚本 URL，默认为官方地址 (Umami Script URL, defaults to official URL)
+#      - FRONTEND_BASE_URL=https://your-lobechat-url.com  # OIDC Provider 前端基础URL，用于生成 OAuth 回调地址 (Frontend base URL for OIDC Provider redirect URIs)
+#      - NODE_TYPE=master  # 节点类型，单节点部署用 master，多节点从节点用 slave (Node type: master for single-node, slave for multi-node worker)
 
     depends_on:
       - redis

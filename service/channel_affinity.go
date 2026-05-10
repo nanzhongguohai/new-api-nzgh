@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/cachex"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -32,13 +34,32 @@ const (
 
 var (
 	channelAffinityCacheOnce sync.Once
-	channelAffinityCache     *cachex.HybridCache[int]
+	channelAffinityCache     *cachex.HybridCache[ChannelAffinityCacheEntry]
 
 	channelAffinityUsageCacheStatsOnce  sync.Once
 	channelAffinityUsageCacheStatsCache *cachex.HybridCache[ChannelAffinityUsageCacheCounters]
 
 	channelAffinityRegexCache sync.Map // map[string]*regexp.Regexp
+
+	channelAffinityPriorityRefreshMu      sync.Mutex
+	channelAffinityPriorityRefreshRunning bool
+	channelAffinityPriorityRefreshPending bool
 )
+
+type ChannelAffinityCacheEntry struct {
+	ChannelID     int    `json:"channel_id"`
+	RuleName      string `json:"rule_name,omitempty"`
+	UsingGroup    string `json:"using_group,omitempty"`
+	SelectedGroup string `json:"selected_group,omitempty"`
+	ModelName     string `json:"model,omitempty"`
+	Priority      int64  `json:"priority"`
+	CreatedAt     int64  `json:"created_at"`
+	UpdatedAt     int64  `json:"updated_at"`
+}
+
+func (e *ChannelAffinityCacheEntry) SetChannelID(channelID int) {
+	e.ChannelID = channelID
+}
 
 type channelAffinityMeta struct {
 	CacheKey       string
@@ -78,7 +99,7 @@ type ChannelAffinityCacheStats struct {
 	CacheAlgo     string         `json:"cache_algo"`
 }
 
-func getChannelAffinityCache() *cachex.HybridCache[int] {
+func getChannelAffinityCache() *cachex.HybridCache[ChannelAffinityCacheEntry] {
 	channelAffinityCacheOnce.Do(func() {
 		setting := operation_setting.GetChannelAffinitySetting()
 		capacity := setting.MaxEntries
@@ -90,15 +111,15 @@ func getChannelAffinityCache() *cachex.HybridCache[int] {
 			defaultTTLSeconds = 3600
 		}
 
-		channelAffinityCache = cachex.NewHybridCache[int](cachex.HybridCacheConfig[int]{
+		channelAffinityCache = cachex.NewHybridCache[ChannelAffinityCacheEntry](cachex.HybridCacheConfig[ChannelAffinityCacheEntry]{
 			Namespace: cachex.Namespace(channelAffinityCacheNamespace),
 			Redis:     common.RDB,
 			RedisEnabled: func() bool {
 				return common.RedisEnabled && common.RDB != nil
 			},
-			RedisCodec: cachex.IntCodec{},
-			Memory: func() *hot.HotCache[string, int] {
-				return hot.NewHotCache[string, int](hot.LRU, capacity).
+			RedisCodec: cachex.IntCompatibleJSONCodec[ChannelAffinityCacheEntry]{},
+			Memory: func() *hot.HotCache[string, ChannelAffinityCacheEntry] {
+				return hot.NewHotCache[string, ChannelAffinityCacheEntry](hot.LRU, capacity).
 					WithTTL(time.Duration(defaultTTLSeconds) * time.Second).
 					WithJanitor().
 					Build()
@@ -605,13 +626,13 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 		})
 
 		cache := getChannelAffinityCache()
-		channelID, found, err := cache.Get(cacheKeySuffix)
+		entry, found, err := cache.Get(cacheKeySuffix)
 		if err != nil {
 			common.SysError(fmt.Sprintf("channel affinity cache get failed: key=%s, err=%v", cacheKeyFull, err))
 			return 0, false
 		}
-		if found {
-			return channelID, true
+		if found && entry.ChannelID > 0 {
+			return entry.ChannelID, true
 		}
 		return 0, false
 	}
@@ -696,10 +717,179 @@ func RecordChannelAffinity(c *gin.Context, channelID int) {
 	if ttlSeconds <= 0 {
 		ttlSeconds = 3600
 	}
+	meta, _ := getChannelAffinityMeta(c)
+	now := time.Now().Unix()
+	entry := ChannelAffinityCacheEntry{
+		ChannelID:     channelID,
+		RuleName:      meta.RuleName,
+		UsingGroup:    meta.UsingGroup,
+		SelectedGroup: common.GetContextKeyString(c, constant.ContextKeyAutoGroup),
+		ModelName:     meta.ModelName,
+		Priority:      getChannelPriorityForAffinityEntry(channelID),
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if entry.SelectedGroup == "" {
+		entry.SelectedGroup = meta.UsingGroup
+	}
 	cache := getChannelAffinityCache()
-	if err := cache.SetWithTTL(cacheKey, channelID, time.Duration(ttlSeconds)*time.Second); err != nil {
+	if err := cache.SetWithTTL(cacheKey, entry, time.Duration(ttlSeconds)*time.Second); err != nil {
 		common.SysError(fmt.Sprintf("channel affinity cache set failed: key=%s, err=%v", cacheKey, err))
 	}
+}
+
+func getChannelPriorityForAffinityEntry(channelID int) int64 {
+	channel, err := model.CacheGetChannel(channelID)
+	if err != nil || channel == nil {
+		return 0
+	}
+	return channel.GetPriority()
+}
+
+type ChannelAffinityPriorityRefreshStats struct {
+	Reason  string `json:"reason"`
+	Scanned int    `json:"scanned"`
+	Updated int    `json:"updated"`
+	Deleted int    `json:"deleted"`
+	Skipped int    `json:"skipped"`
+}
+
+func ScheduleChannelAffinityPriorityRefresh(reason string) {
+	setting := operation_setting.GetChannelAffinitySetting()
+	if setting == nil || !setting.Enabled {
+		return
+	}
+
+	channelAffinityPriorityRefreshMu.Lock()
+	if channelAffinityPriorityRefreshRunning {
+		channelAffinityPriorityRefreshPending = true
+		channelAffinityPriorityRefreshMu.Unlock()
+		return
+	}
+	channelAffinityPriorityRefreshRunning = true
+	channelAffinityPriorityRefreshMu.Unlock()
+
+	go func() {
+		for {
+			stats := RefreshChannelAffinityPriorityMappings(reason)
+			common.SysLog(fmt.Sprintf("channel affinity priority refresh finished: reason=%s, scanned=%d, updated=%d, deleted=%d, skipped=%d", stats.Reason, stats.Scanned, stats.Updated, stats.Deleted, stats.Skipped))
+
+			channelAffinityPriorityRefreshMu.Lock()
+			if !channelAffinityPriorityRefreshPending {
+				channelAffinityPriorityRefreshRunning = false
+				channelAffinityPriorityRefreshMu.Unlock()
+				return
+			}
+			channelAffinityPriorityRefreshPending = false
+			channelAffinityPriorityRefreshMu.Unlock()
+			reason = "coalesced"
+		}
+	}()
+}
+
+func RefreshChannelAffinityPriorityMappings(reason string) ChannelAffinityPriorityRefreshStats {
+	stats := ChannelAffinityPriorityRefreshStats{Reason: strings.TrimSpace(reason)}
+	if stats.Reason == "" {
+		stats.Reason = "manual"
+	}
+	setting := operation_setting.GetChannelAffinitySetting()
+	if setting == nil || !setting.Enabled {
+		return stats
+	}
+
+	cache := getChannelAffinityCache()
+	keys, err := cache.Keys()
+	if err != nil {
+		common.SysError(fmt.Sprintf("channel affinity priority refresh list keys failed: err=%v", err))
+		return stats
+	}
+
+	for _, key := range keys {
+		stats.Scanned++
+		entry, found, err := cache.Get(key)
+		if err != nil || !found || entry.ChannelID <= 0 {
+			stats.Skipped++
+			continue
+		}
+
+		next, shouldDelete, changed := refreshChannelAffinityEntry(entry)
+		if shouldDelete {
+			if _, err := cache.DeleteMany([]string{key}); err != nil {
+				common.SysError(fmt.Sprintf("channel affinity priority refresh delete failed: key=%s, err=%v", key, err))
+				stats.Skipped++
+			} else {
+				stats.Deleted++
+			}
+			continue
+		}
+		if !changed {
+			stats.Skipped++
+			continue
+		}
+
+		if next.CreatedAt <= 0 {
+			next.CreatedAt = entry.CreatedAt
+		}
+		next.UpdatedAt = time.Now().Unix()
+		ttlSeconds := setting.DefaultTTLSeconds
+		if ttlSeconds <= 0 {
+			ttlSeconds = 3600
+		}
+		if err := cache.SetWithTTL(key, next, time.Duration(ttlSeconds)*time.Second); err != nil {
+			common.SysError(fmt.Sprintf("channel affinity priority refresh set failed: key=%s, err=%v", key, err))
+			stats.Skipped++
+			continue
+		}
+		stats.Updated++
+	}
+	return stats
+}
+
+func refreshChannelAffinityEntry(entry ChannelAffinityCacheEntry) (next ChannelAffinityCacheEntry, shouldDelete bool, changed bool) {
+	next = entry
+	usingGroup := strings.TrimSpace(entry.SelectedGroup)
+	if usingGroup == "" {
+		usingGroup = strings.TrimSpace(entry.UsingGroup)
+	}
+	modelName := strings.TrimSpace(entry.ModelName)
+	if usingGroup == "" || modelName == "" {
+		return next, false, false
+	}
+
+	current, currentErr := model.CacheGetChannel(entry.ChannelID)
+	currentUsable := currentErr == nil &&
+		current != nil &&
+		current.Status == common.ChannelStatusEnabled &&
+		model.IsChannelEnabledForGroupModel(usingGroup, modelName, entry.ChannelID)
+
+	best, err := model.GetHighestPrioritySatisfiedChannel(usingGroup, modelName)
+	if err != nil {
+		common.SysError(fmt.Sprintf("channel affinity priority refresh select failed: group=%s, model=%s, err=%v", usingGroup, modelName, err))
+		return next, false, false
+	}
+	if best == nil {
+		if currentUsable {
+			return next, false, false
+		}
+		return next, true, false
+	}
+
+	if !currentUsable || current.GetPriority() < best.GetPriority() {
+		next.ChannelID = best.Id
+		next.Priority = best.GetPriority()
+		next.SelectedGroup = usingGroup
+		if next.UsingGroup == "" {
+			next.UsingGroup = usingGroup
+		}
+		return next, false, next.ChannelID != entry.ChannelID || next.Priority != entry.Priority
+	}
+
+	priority := current.GetPriority()
+	if next.Priority != priority {
+		next.Priority = priority
+		return next, false, true
+	}
+	return next, false, false
 }
 
 type ChannelAffinityUsageCacheStats struct {

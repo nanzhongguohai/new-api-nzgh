@@ -655,6 +655,8 @@ func AddChannel(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	model.InitChannelCache()
+	service.ScheduleChannelAffinityPriorityRefresh("channel_added")
 	service.ResetProxyClientCache()
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -672,6 +674,7 @@ func DeleteChannel(c *gin.Context) {
 		return
 	}
 	model.InitChannelCache()
+	service.ScheduleChannelAffinityPriorityRefresh("channel_deleted")
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -686,6 +689,7 @@ func DeleteDisabledChannel(c *gin.Context) {
 		return
 	}
 	model.InitChannelCache()
+	service.ScheduleChannelAffinityPriorityRefresh("disabled_channels_deleted")
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -722,6 +726,7 @@ func DisableTagChannels(c *gin.Context) {
 		return
 	}
 	model.InitChannelCache()
+	service.ScheduleChannelAffinityPriorityRefresh("tag_channels_disabled")
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -745,6 +750,7 @@ func EnableTagChannels(c *gin.Context) {
 		return
 	}
 	model.InitChannelCache()
+	service.ScheduleChannelAffinityPriorityRefresh("tag_channels_enabled")
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -797,6 +803,9 @@ func EditTagChannels(c *gin.Context) {
 		return
 	}
 	model.InitChannelCache()
+	if channelTag.Priority != nil {
+		service.ScheduleChannelAffinityPriorityRefresh("tag_channel_priority_changed")
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -825,6 +834,7 @@ func DeleteChannelBatch(c *gin.Context) {
 		return
 	}
 	model.InitChannelCache()
+	service.ScheduleChannelAffinityPriorityRefresh("channels_deleted")
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -953,12 +963,16 @@ func UpdateChannel(c *gin.Context) {
 			// 覆盖模式：直接使用新密钥（默认行为，不需要特殊处理）
 		}
 	}
+	priorityChanged := originChannel.GetPriority() != channel.Channel.GetPriority()
 	err = channel.Update()
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	model.InitChannelCache()
+	if priorityChanged {
+		service.ScheduleChannelAffinityPriorityRefresh("channel_priority_changed")
+	}
 	service.ResetProxyClientCache()
 	channel.Key = ""
 	clearChannelInfo(&channel.Channel)

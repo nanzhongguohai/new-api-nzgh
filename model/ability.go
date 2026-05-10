@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -52,10 +53,79 @@ func GetEnabledModels() []string {
 	return models
 }
 
+func getExcludedChannelIDs(excludedChannelIDs map[int]struct{}) []int {
+	if len(excludedChannelIDs) == 0 {
+		return nil
+	}
+	ids := make([]int, 0, len(excludedChannelIDs))
+	for id := range excludedChannelIDs {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 func GetAllEnableAbilities() []Ability {
 	var abilities []Ability
 	DB.Find(&abilities, "enabled = ?", true)
 	return abilities
+}
+
+func GetChannelWithExclude(group string, model string, excludedChannelIDs map[int]struct{}) (*Channel, error) {
+	channel, err := getChannelWithExclude(group, model, excludedChannelIDs)
+	if err != nil || channel != nil {
+		return channel, err
+	}
+
+	normalized := ratio_setting.FormatMatchingModelName(model)
+	if normalized == "" || normalized == model {
+		return nil, nil
+	}
+	return getChannelWithExclude(group, normalized, excludedChannelIDs)
+}
+
+func getChannelWithExclude(group string, model string, excludedChannelIDs map[int]struct{}) (*Channel, error) {
+	var abilities []Ability
+	query := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true)
+	if excludedIDs := getExcludedChannelIDs(excludedChannelIDs); len(excludedIDs) > 0 {
+		query = query.Where("channel_id NOT IN ?", excludedIDs)
+	}
+
+	if err := query.Order("priority DESC, weight DESC").Find(&abilities).Error; err != nil {
+		return nil, err
+	}
+	if len(abilities) == 0 {
+		return nil, nil
+	}
+
+	targetPriority := abilities[0].Priority
+	var targetAbilities []Ability
+	for _, ability := range abilities {
+		if ability.Priority == nil && targetPriority != nil {
+			break
+		}
+		if ability.Priority != nil && targetPriority == nil {
+			break
+		}
+		if ability.Priority != nil && targetPriority != nil && *ability.Priority != *targetPriority {
+			break
+		}
+		targetAbilities = append(targetAbilities, ability)
+	}
+
+	if len(targetAbilities) == 0 {
+		return nil, nil
+	}
+
+	targetChannels := make([]*Channel, 0, len(targetAbilities))
+	for _, ability := range targetAbilities {
+		channel, err := GetChannelById(ability.ChannelId, true)
+		if err != nil {
+			return nil, err
+		}
+		targetChannels = append(targetChannels, channel)
+	}
+
+	return selectWeightedChannel(targetChannels)
 }
 
 func getPriority(group string, model string, retry int) (int, error) {

@@ -643,6 +643,8 @@ func (channel *Channel) Delete() error {
 
 var channelStatusLock sync.Mutex
 
+var OnChannelPriorityRefreshNeeded func(reason string)
+
 // channelPollingLocks stores locks for each channel.id to ensure thread-safe polling
 var channelPollingLocks sync.Map
 
@@ -748,6 +750,9 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 			err := UpdateAbilityStatus(channelId, status == common.ChannelStatusEnabled)
 			if err != nil {
 				common.SysLog(fmt.Sprintf("failed to update ability status: channel_id=%d, error=%v", channelId, err))
+			}
+			if OnChannelPriorityRefreshNeeded != nil {
+				OnChannelPriorityRefreshNeeded("channel_status_changed")
 			}
 		}
 	}()

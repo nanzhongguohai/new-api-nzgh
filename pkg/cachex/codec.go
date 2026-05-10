@@ -26,6 +26,29 @@ func (c IntCodec) Decode(s string) (int, error) {
 	return strconv.Atoi(s)
 }
 
+type IntCompatibleJSONCodec[V any] struct{}
+
+func (c IntCompatibleJSONCodec[V]) Encode(v V) (string, error) {
+	return JSONCodec[V]{}.Encode(v)
+}
+
+func (c IntCompatibleJSONCodec[V]) Decode(s string) (V, error) {
+	var v V
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return v, fmt.Errorf("empty json value")
+	}
+	if !strings.HasPrefix(trimmed, "{") {
+		if id, err := strconv.Atoi(trimmed); err == nil {
+			if setter, ok := any(&v).(interface{ SetChannelID(int) }); ok {
+				setter.SetChannelID(id)
+				return v, nil
+			}
+		}
+	}
+	return JSONCodec[V]{}.Decode(trimmed)
+}
+
 type StringCodec struct{}
 
 func (c StringCodec) Encode(v string) (string, error) { return v, nil }

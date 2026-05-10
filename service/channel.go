@@ -11,6 +11,10 @@ import (
 	"github.com/QuantumNous/new-api/types"
 )
 
+func init() {
+	model.OnChannelPriorityRefreshNeeded = ScheduleChannelAffinityPriorityRefresh
+}
+
 func formatNotifyType(channelId int, status int) string {
 	return fmt.Sprintf("%s_%d_%d", dto.NotifyTypeChannelUpdate, channelId, status)
 }

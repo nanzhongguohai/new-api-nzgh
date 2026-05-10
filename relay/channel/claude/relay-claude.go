@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -42,6 +43,19 @@ func maybeMarkClaudeRefusal(c *gin.Context, stopReason string) {
 	if strings.EqualFold(stopReason, "refusal") {
 		common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "claude_stop_reason=refusal")
 	}
+}
+
+func getClaudeFileMimeType(file *dto.MessageFile) string {
+	if file == nil {
+		return ""
+	}
+	if dot := strings.LastIndex(file.FileName, "."); dot != -1 && dot+1 < len(file.FileName) {
+		mimeType := service.GetMimeTypeByExtension(file.FileName[dot+1:])
+		if mimeType != "application/octet-stream" {
+			return mimeType
+		}
+	}
+	return ""
 }
 
 func RequestOpenAI2ClaudeMessage(c *gin.Context, textRequest dto.GeneralOpenAIRequest) (*dto.ClaudeRequest, error) {
@@ -374,6 +388,40 @@ func RequestOpenAI2ClaudeMessage(c *gin.Context, textRequest dto.GeneralOpenAIRe
 							claudeMediaMessages = append(claudeMediaMessages, dto.ClaudeMediaMessage{
 								Type: "text",
 								Text: common.GetPointer[string](mediaMessage.Text),
+							})
+						}
+					case dto.ContentTypeFile:
+						file := mediaMessage.GetFile()
+						if file == nil || file.FileData == "" {
+							continue
+						}
+						mimeType := getClaudeFileMimeType(file)
+						source := types.NewFileSourceFromData(file.FileData, mimeType)
+						base64Data, detectedMimeType, err := service.GetBase64Data(c, source, "formatting file for Claude")
+						if err != nil {
+							return nil, fmt.Errorf("get file data failed: %s", err.Error())
+						}
+						if detectedMimeType != "" {
+							mimeType = detectedMimeType
+						}
+						switch {
+						case strings.HasPrefix(mimeType, "application/pdf"):
+							claudeMediaMessages = append(claudeMediaMessages, dto.ClaudeMediaMessage{
+								Type: "document",
+								Source: &dto.ClaudeMessageSource{
+									Type:      "base64",
+									MediaType: mimeType,
+									Data:      base64Data,
+								},
+							})
+						case strings.HasPrefix(mimeType, "text/"):
+							textData, err := base64.StdEncoding.DecodeString(base64Data)
+							if err != nil {
+								return nil, fmt.Errorf("decode text file failed: %s", err.Error())
+							}
+							claudeMediaMessages = append(claudeMediaMessages, dto.ClaudeMediaMessage{
+								Type: "text",
+								Text: common.GetPointer[string](string(textData)),
 							})
 						}
 					default:

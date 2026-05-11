@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -177,7 +178,12 @@ func OIDCProviderAuthorize(c *gin.Context) {
 		"scope":          scope,
 		"created_at":     time.Now().Unix(),
 	}
-	codeDataJSON, _ := json.Marshal(codeData)
+	codeDataJSON, err := common.Marshal(codeData)
+	if err != nil {
+		common.SysError("failed to marshal OIDC code data: " + err.Error())
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
 	if common.RedisEnabled {
 		err = common.RedisSet("oidc_code:"+codeHashStr, string(codeDataJSON), 10*time.Minute)
 		if err != nil {
@@ -285,7 +291,11 @@ func handleOIDCTokenExchange(c *gin.Context, client *model.OIDCClient) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_grant", "error_description": "code not found or expired"})
 			return
 		}
-		json.Unmarshal([]byte(val), &codeDataMap)
+		if err = common.Unmarshal([]byte(val), &codeDataMap); err != nil {
+			common.SysError("failed to unmarshal OIDC code data: " + err.Error())
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_grant", "error_description": "invalid code data"})
+			return
+		}
 		common.RedisDel("oidc_code:" + codeHashStr)
 	} else {
 		val, ok := oidcCodeStore.Load(codeHashStr)
@@ -315,7 +325,11 @@ func handleOIDCTokenExchange(c *gin.Context, client *model.OIDCClient) {
 		return
 	}
 
-	userId := int(codeDataMap["user_id"].(float64))
+	userId, err := oidcCodeUserID(codeDataMap["user_id"])
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_grant", "error_description": "invalid user_id"})
+		return
+	}
 
 	// Generate access token (JWT)
 	baseURL := getOIDCProviderBaseURL(c)
@@ -583,20 +597,87 @@ func sanitizeEmailLocalPart(value string) string {
 }
 
 func oidcSubjectToUserID(sub interface{}) (int, error) {
-	switch value := sub.(type) {
-	case string:
-		id, err := strconv.Atoi(value)
-		if err != nil {
-			return 0, fmt.Errorf("invalid subject")
-		}
-		return id, nil
-	case float64:
-		return int(value), nil
-	case int:
-		return value, nil
-	default:
+	id, err := oidcCodeUserID(sub)
+	if err != nil {
 		return 0, fmt.Errorf("invalid subject")
 	}
+	return id, nil
+}
+
+func oidcCodeUserID(value interface{}) (int, error) {
+	switch typed := value.(type) {
+	case int:
+		return typed, nil
+	case int8:
+		return int(typed), nil
+	case int16:
+		return int(typed), nil
+	case int32:
+		return int(typed), nil
+	case int64:
+		return oidcSignedIntToInt(typed)
+	case uint:
+		return oidcUnsignedIntToInt(uint64(typed))
+	case uint8:
+		return int(typed), nil
+	case uint16:
+		return int(typed), nil
+	case uint32:
+		return oidcUnsignedIntToInt(uint64(typed))
+	case uint64:
+		return oidcUnsignedIntToInt(typed)
+	case float32:
+		return oidcFloatToInt(float64(typed))
+	case float64:
+		return oidcFloatToInt(typed)
+	case string:
+		id, err := strconv.ParseInt(strings.TrimSpace(typed), 10, strconv.IntSize)
+		if err != nil {
+			return 0, fmt.Errorf("invalid user_id")
+		}
+		return int(id), nil
+	case json.Number:
+		if id, err := typed.Int64(); err == nil {
+			return oidcSignedIntToInt(id)
+		}
+		floatValue, err := typed.Float64()
+		if err != nil {
+			return 0, fmt.Errorf("invalid user_id")
+		}
+		return oidcFloatToInt(floatValue)
+	default:
+		return 0, fmt.Errorf("invalid user_id")
+	}
+}
+
+func oidcSignedIntToInt(value int64) (int, error) {
+	maxInt := int64(^uint(0) >> 1)
+	minInt := -maxInt - 1
+	if value < minInt || value > maxInt {
+		return 0, fmt.Errorf("invalid user_id")
+	}
+	return int(value), nil
+}
+
+func oidcUnsignedIntToInt(value uint64) (int, error) {
+	maxInt := uint64(^uint(0) >> 1)
+	if value > maxInt {
+		return 0, fmt.Errorf("invalid user_id")
+	}
+	return int(value), nil
+}
+
+func oidcFloatToInt(value float64) (int, error) {
+	if math.IsNaN(value) || math.IsInf(value, 0) || math.Trunc(value) != value {
+		return 0, fmt.Errorf("invalid user_id")
+	}
+
+	maxInt := float64(^uint(0) >> 1)
+	minInt := -maxInt - 1
+	if value < minInt || value > maxInt {
+		return 0, fmt.Errorf("invalid user_id")
+	}
+	return int(value), nil
 }
 
 // validateOIDCToken parses and validates a JWT token.

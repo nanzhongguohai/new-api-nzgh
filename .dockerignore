@@ -15,3 +15,4 @@ prod.env
 *.env
 new-api
 new-api-*
+!THIRD-PARTY-LICENSES.md

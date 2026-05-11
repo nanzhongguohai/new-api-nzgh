@@ -14,12 +14,16 @@ export default defineConfig(({ envMode }) => {
     'http://localhost:3000'
 
   const isProd = envMode === 'production'
-  const devProxy = Object.fromEntries(
-    (['/api', '/mj', '/pg'] as const).map((key) => [
-      key,
-      { target: serverUrl, changeOrigin: true },
-    ]),
-  ) as Record<string, { target: string; changeOrigin: boolean }>
+  const devProxy = {
+    ...Object.fromEntries(
+      (['/api', '/mj', '/pg', '/v1', '/v1beta'] as const).map((key) => [
+        key,
+        { target: serverUrl, changeOrigin: true },
+      ]),
+    ),
+    '/.well-known': { target: serverUrl, changeOrigin: false },
+    '/oauth': { target: serverUrl, changeOrigin: false },
+  } as Record<string, { target: string; changeOrigin: boolean }>
 
   return {
     plugins: [pluginReact()],

@@ -230,7 +230,11 @@ For request structs that are parsed from client JSON and then re-marshaled to up
   - field explicitly set to zero/false => non-`nil` pointer => must still be sent upstream.
 - Avoid using non-pointer scalars with `omitempty` for optional request parameters, because zero values (`0`, `0.0`, `false`) will be silently dropped during marshal.
 
-### Rule 7: Billing Expression System — Read `pkg/billingexpr/expr.md`
+### Rule 7: OIDC / SSO — Read `docs/SSO.md`
+
+When working on OIDC Provider, OAuth flows, or single sign-on features, you MUST read `docs/SSO.md` first. It documents the full SSO setup: new-api as OIDC Provider (OP), LobeChat as Relying Party (RP), required environment variables (`FRONTEND_BASE_URL`, `NODE_TYPE`), OIDC client registration, and end-to-end verification steps.
+
+### Rule 8: Billing Expression System — Read `pkg/billingexpr/expr.md`
 
 When working on tiered/dynamic billing (expression-based pricing), you MUST read `pkg/billingexpr/expr.md` first. It documents the design philosophy, expression language (variables, functions, examples), full system architecture (editor → storage → pre-consume → settlement → log display), token normalization rules (`p`/`c` auto-exclusion), quota conversion, and expression versioning. All code changes to the billing expression system must follow the patterns described in that document.
 

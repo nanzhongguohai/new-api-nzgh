@@ -1,0 +1,4 @@
+interface:
+  display_name: "Package Upload Prod"
+  short_description: "Package and upload prod release artifacts"
+  default_prompt: "Use $package-upload-prod to package the current repo and upload the release bundle to the production server."

@@ -5,12 +5,12 @@
 ## 结构
 
 - 宿主机 Nginx：只监听 `80/443`，只负责 TLS 和域名分发
-- 项目内 Nginx：运行在 `docker-compose.prod.yml` 中，对宿主机仅暴露 `127.0.0.1:${PORT}`
+- 项目内 Nginx：运行在 `docker-compose.prod.yml` 中，对宿主机暴露 `${PORT}`
 - `new-api` 应用：仅在 Docker 网络内监听 `3000`
 
 请求链路：
 
-`client -> 宿主机 Nginx -> 127.0.0.1:${PORT} -> 项目内 Nginx -> new-api:3000`
+`client -> 宿主机 Nginx -> ${PORT} -> 项目内 Nginx -> new-api:3000`
 
 ## 为什么这样隔离
 
@@ -51,7 +51,7 @@ REDIS_CONN_STRING=redis://host.docker.internal:6379
 宿主机 Nginx 现在只需要保留这种最小职责：
 
 - 证书与 `80/443`
-- 基于域名转发到 `127.0.0.1:${PORT}`
+- 基于域名转发到项目内 Nginx 的 `${PORT}` 端口
 - 基础访问日志和全局限流
 
 不要再让项目脚本去修改：
